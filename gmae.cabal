@@ -20,4 +20,6 @@ executable gmae
   build-depends:       base >= 4.7 && < 5
                      , sdl2
                      , random
-  cpp-options: -D_SDL_main_h
+                     , ghc
+                     , ghci
+  other-modules:       API

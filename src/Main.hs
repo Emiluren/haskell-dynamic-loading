@@ -1,38 +1,50 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, MagicHash, UnboxedTuples #-}
 module Main where
 
-import Control.Concurrent (threadDelay)
-import Foreign.C.Types
-import SDL.Vect
-import qualified SDL
-import System.Random
+import qualified API
 
-screenWidth, screenHeight :: CInt
-(screenWidth, screenHeight) = (640, 480)
+import Foreign.C.String ( withCString, CString )
+import GHC.Exts ( addrToAny# )
+import GHC.Ptr ( Ptr(..), nullPtr )
+import System.Info ( os, arch )
+import Encoding ( zEncodeString )
+import Data.Maybe ( fromMaybe )
 
 main :: IO ()
 main = do
-  SDL.initialize [SDL.InitVideo]
+    mF <- loadFunction Nothing "Main" "f" :: IO (Maybe String)
+    print mF
 
-  window <- SDL.createWindow
-    "Yolo med mycket swag"
-    SDL.defaultWindow
-    { SDL.windowInitialSize = V2 screenWidth screenHeight }
+    mG <- loadFunction Nothing "Main" "g" :: IO (Maybe (IO ()))
+    fromMaybe (putStrLn "Could not load g") mG
 
-  SDL.showWindow window
+f :: String
+f = "works"
 
-  threadDelay 2000000
+g :: IO ()
+g = putStrLn "hej"
 
-  SDL.destroyWindow window
-  SDL.quit
+loadFunction :: Maybe String -> String -> String -> IO (Maybe a)
+loadFunction mpkg m valsym = do
+    c_initLinker
+    let symbol = prefixUnderscore
+            ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
+            ++ zEncodeString m ++ "_" ++ zEncodeString valsym
+            ++ "_closure"
+    ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
+    if ptr == nullPtr then
+        return Nothing
+    else
+        case addrToAny# addr of
+            (# hval #) -> return ( Just hval )
+    where
+        prefixUnderscore = case (os, arch) of
+            ("mingw32", "x86_64") -> ""
+            ("cygwin" , "x86_64") -> ""
+            ("mingw32", _       ) -> "_"
+            ("darwin" , _       ) -> "_"
+            ("cygwin" , _       ) -> "_"
+            _ -> ""
 
-randChallenge :: Int -> Int -> IO ()
-randChallenge minv maxv = do
-  stdGen <- newStdGen
-
-  let tenRandom = take 10 $ randomRs (0 :: Int, 100) stdGen
-      inInterval = filter (\x -> x >= minv && x <= maxv) tenRandom
-
-  putStrLn $ "Picked values " ++ show tenRandom
-  putStrLn $ show (length inInterval) ++ " values in interval: " ++ show inInterval
-
+foreign import ccall safe "lookupSymbol" c_lookupSymbol :: CString -> IO (Ptr a)
+foreign import ccall safe "initLinker" c_initLinker :: IO ()
