@@ -3,48 +3,45 @@ module Main where
 
 import qualified API
 
-import Foreign.C.String ( withCString, CString )
 import GHC.Exts ( addrToAny# )
-import GHC.Ptr ( Ptr(..), nullPtr )
+import GHC.Ptr ( Ptr(..) )
 import System.Info ( os, arch )
 import Encoding ( zEncodeString )
-import Data.Maybe ( fromMaybe )
+import GHCi.ObjLink
 
 main :: IO ()
 main = do
-    mF <- loadFunction Nothing "Main" "f" :: IO (Maybe String)
-    print mF
+    initObjLinker
+    loadObj "Plugin.o"
+    _ret <- resolveObjs
+    ptrF <- lookupSymbol (mangleSymbol Nothing "Plugin" "f")
+    ptrG <- lookupSymbol (mangleSymbol Nothing "Plugin" "g")
+    ptrH <- lookupSymbol (mangleSymbol Nothing "Plugin" "h")
+    case ptrF of
+        Nothing -> putStrLn "Couldn’t load f"
+        Just (Ptr addr) -> case addrToAny# addr of
+                               (# hval #) -> putStrLn (hval :: String)
+    case ptrG of
+        Nothing -> putStrLn "Couldn’t load g"
+        Just (Ptr addr) -> case addrToAny# addr of
+                               (# hval #) -> hval :: IO ()
+    case ptrH of
+        Nothing -> putStrLn "Couldn’t load h"
+        Just (Ptr addr) -> case addrToAny# addr of
+                               (# hval #) -> print (hval :: Int)
 
-    mG <- loadFunction Nothing "Main" "g" :: IO (Maybe (IO ()))
-    fromMaybe (putStrLn "Could not load g") mG
+mangleSymbol :: Maybe String -> String -> String -> String
+mangleSymbol pkg module' valsym =
+  prefixUnderscore ++
+  maybe "" (\p -> zEncodeString p ++ "_") pkg ++
+  zEncodeString module' ++ "_" ++ zEncodeString valsym ++ "_closure"
 
-f :: String
-f = "works"
-
-g :: IO ()
-g = putStrLn "hej"
-
-loadFunction :: Maybe String -> String -> String -> IO (Maybe a)
-loadFunction mpkg m valsym = do
-    c_initLinker
-    let symbol = prefixUnderscore
-            ++ maybe "" (\p -> zEncodeString p ++ "_") mpkg
-            ++ zEncodeString m ++ "_" ++ zEncodeString valsym
-            ++ "_closure"
-    ptr@(Ptr addr) <- withCString symbol c_lookupSymbol
-    if ptr == nullPtr then
-        return Nothing
-    else
-        case addrToAny# addr of
-            (# hval #) -> return ( Just hval )
-    where
-        prefixUnderscore = case (os, arch) of
-            ("mingw32", "x86_64") -> ""
-            ("cygwin" , "x86_64") -> ""
-            ("mingw32", _       ) -> "_"
-            ("darwin" , _       ) -> "_"
-            ("cygwin" , _       ) -> "_"
-            _ -> ""
-
-foreign import ccall safe "lookupSymbol" c_lookupSymbol :: CString -> IO (Ptr a)
-foreign import ccall safe "initLinker" c_initLinker :: IO ()
+prefixUnderscore :: String
+prefixUnderscore =
+  case (os,arch) of
+    ("mingw32","x86_64") -> ""
+    ("cygwin","x86_64") -> ""
+    ("mingw32",_) -> "_"
+    ("darwin",_) -> "_"
+    ("cygwin",_) -> "_"
+    _ -> ""
