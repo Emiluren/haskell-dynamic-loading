@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE MagicHash, UnboxedTuples #-}
 module Main where
 
 import qualified API
@@ -12,23 +12,25 @@ import GHCi.ObjLink
 main :: IO ()
 main = do
     initObjLinker
-    loadObj "Plugin.o"
+    loadObj "Game.o"
     _ret <- resolveObjs
-    ptrF <- lookupSymbol (mangleSymbol Nothing "Plugin" "f")
-    ptrG <- lookupSymbol (mangleSymbol Nothing "Plugin" "g")
-    ptrH <- lookupSymbol (mangleSymbol Nothing "Plugin" "h")
-    case ptrF of
-        Nothing -> putStrLn "Couldn’t load f"
-        Just (Ptr addr) -> case addrToAny# addr of
-                               (# hval #) -> putStrLn (hval :: String)
-    case ptrG of
-        Nothing -> putStrLn "Couldn’t load g"
-        Just (Ptr addr) -> case addrToAny# addr of
-                               (# hval #) -> hval :: IO ()
-    case ptrH of
-        Nothing -> putStrLn "Couldn’t load h"
-        Just (Ptr addr) -> case addrToAny# addr of
-                               (# hval #) -> print (hval :: Int)
+
+    mPluginMain <- loadV "pluginMain"
+    case mPluginMain of
+        Nothing -> putStrLn "Couldn’t load pluginMain"
+        Just pluginMain -> do
+            prog <- pluginMain
+            let model = API.init prog
+            model' <- API.update prog model
+            API.draw prog model'
+
+loadV :: String -> IO (Maybe a)
+loadV name = do
+    ptr <- lookupSymbol (mangleSymbol Nothing "Game" name)
+    return $ fmap getV ptr
+    where
+        getV (Ptr addr) = case addrToAny# addr of
+                              (# hval #) -> hval
 
 mangleSymbol :: Maybe String -> String -> String -> String
 mangleSymbol pkg module' valsym =
